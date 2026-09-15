@@ -14,12 +14,3 @@ Thumbs.db
 *.log
 powershell.bat
 powershell.cmd
-
-# Frontend dependencies and builds
-node_modules/
-**/node_modules/
-dist/
-**/dist/
-.env
-*.env.local
-
