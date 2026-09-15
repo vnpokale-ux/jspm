@@ -67,12 +67,54 @@ class ApiService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData)
       });
-      if (res.ok) {
-        const data = await res.json();
-        return data.data;
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const user = data.data;
+        // Update local storage registered users list with server approval status
+        let registered = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
+        const idx = registered.findIndex(u => 
+          (user.id && u.id === user.id) || 
+          (user.email && u.email && u.email.toLowerCase() === user.email.toLowerCase()) ||
+          (user.prn && u.prn && u.prn.toLowerCase() === user.prn.toLowerCase())
+        );
+        if (idx !== -1) {
+          registered[idx] = { ...registered[idx], ...user, status: user.status };
+        } else {
+          registered.unshift(user);
+        }
+        localStorage.setItem('campus_lf_registered_users', JSON.stringify(registered));
+        return user;
+      } else if (res.status === 403) {
+        throw new Error(data.message || '⏳ Approval Pending: Your account has not been approved yet by Administrator Sanjay Patil.');
+      } else if (res.status === 404) {
+        throw new Error(data.message || 'Account not found. Please click "Register Account" first.');
       }
-    } catch (e) {}
-    return userData;
+    } catch (e) {
+      if (e.message && (e.message.includes('Approval Pending') || e.message.includes('Account not found') || e.message.includes('rejected') || e.message.includes('pending'))) {
+        throw e;
+      }
+      console.warn('Backend login fallback to local cache:', e);
+    }
+
+    // Local fallback
+    const registered = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
+    const identifier = (userData.email || userData.identifier || userData.prn || '').toLowerCase();
+    const matched = registered.find(u => 
+      (u.email && u.email.toLowerCase() === identifier) ||
+      (u.prn && u.prn.toLowerCase() === identifier)
+    );
+
+    if (matched) {
+      if (matched.status === 'PENDING') {
+        throw new Error('⏳ Approval Pending: Your email has not been approved yet by Administrator Sanjay Patil.');
+      }
+      if (matched.status === 'REJECTED') {
+        throw new Error('Your account registration was rejected by the Administrator.');
+      }
+      return matched;
+    }
+
+    throw new Error('Account not found. Please click "Register Account" to submit your details for admin approval.');
   }
 
   // --- Items API ---
@@ -386,16 +428,36 @@ class ApiService {
   }
 
   async getAdminUsers() {
+    let serverUsers = [];
     try {
       const headers = await this.getAuthHeaders();
       const res = await fetch(`${API_BASE_URL}/admin/users`, { headers });
       if (res.ok) {
         const data = await res.json();
-        return data.data.content;
+        serverUsers = data.data.content || [];
       }
     } catch (e) {}
 
-    const registered = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
+    let registered = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
+
+    if (serverUsers.length > 0) {
+      // Sync local cache with live database records
+      serverUsers.forEach(su => {
+        const idx = registered.findIndex(ru => 
+          (su.id && ru.id === su.id) || 
+          (ru.email && su.email && ru.email.toLowerCase() === su.email.toLowerCase()) ||
+          (ru.prn && su.prn && ru.prn.toLowerCase() === su.prn.toLowerCase())
+        );
+        if (idx !== -1) {
+          registered[idx] = { ...registered[idx], ...su, status: su.status };
+        } else {
+          registered.push(su);
+        }
+      });
+      localStorage.setItem('campus_lf_registered_users', JSON.stringify(registered));
+      return serverUsers;
+    }
+
     const demo = JSON.parse(localStorage.getItem(this.storageKeyUsers) || '[]');
     const allUsers = [...registered];
     demo.forEach(d => {
@@ -407,6 +469,7 @@ class ApiService {
   }
 
   async approveUser(userId) {
+    let approvedUser = null;
     try {
       const headers = await this.getAuthHeaders();
       const res = await fetch(`${API_BASE_URL}/admin/users/${userId}/approve`, {
@@ -415,17 +478,28 @@ class ApiService {
       });
       if (res.ok) {
         const data = await res.json();
-        return data.data;
+        approvedUser = data.data;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Backend offline, approving user locally:', e);
+    }
 
+    // ALWAYS update local storage so immediate logins succeed without reload
     const registered = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
-    const user = registered.find(u => u.id === Number(userId) || u.clerkId === String(userId));
+    const user = registered.find(u => 
+      u.id === Number(userId) || 
+      String(u.id) === String(userId) || 
+      u.clerkId === String(userId) ||
+      (approvedUser && u.email && approvedUser.email && u.email.toLowerCase() === approvedUser.email.toLowerCase())
+    );
     if (user) {
       user.status = 'APPROVED';
       localStorage.setItem('campus_lf_registered_users', JSON.stringify(registered));
+    } else if (approvedUser) {
+      registered.unshift({ ...approvedUser, status: 'APPROVED' });
+      localStorage.setItem('campus_lf_registered_users', JSON.stringify(registered));
     }
-    return user;
+    return approvedUser || user;
   }
 
   async rejectUser(userId) {
@@ -438,7 +512,11 @@ class ApiService {
     } catch (e) {}
 
     let registered = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
-    registered = registered.filter(u => u.id !== Number(userId) && u.clerkId !== String(userId));
+    registered = registered.filter(u => 
+      u.id !== Number(userId) && 
+      String(u.id) !== String(userId) && 
+      u.clerkId !== String(userId)
+    );
     localStorage.setItem('campus_lf_registered_users', JSON.stringify(registered));
     return true;
   }

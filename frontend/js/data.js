@@ -2,8 +2,8 @@
  * TSSM's BSCOER & JSPM Campus Lost & Found Initial Dataset & Constants
  */
 
-const COLLEGE_LOGO_URL = 'C:/Users/spoka/.gemini/antigravity-ide/brain/ed2ff742-6829-45a9-b89a-2d529bc17f09/.user_uploaded/media_1787309121282.jpg';
-const CAMPUS_BANNER_URL = 'C:/Users/spoka/.gemini/antigravity-ide/brain/ed2ff742-6829-45a9-b89a-2d529bc17f09/.user_uploaded/media_1787309197903.png';
+const COLLEGE_LOGO_URL = 'images/college_logo.jpg';
+const CAMPUS_BANNER_URL = 'images/campus_banner.png';
 
 const INITIAL_CATEGORIES = [
   { id: 'electronics', name: 'Electronics & Gadgets', icon: '💻', count: 24 },

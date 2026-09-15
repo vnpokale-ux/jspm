@@ -772,25 +772,45 @@ async function handleCampusSignIn(e) {
     }
   }
 
-  // 2. Check against registered student accounts
-  const registeredUsers = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
-  const matchedUser = registeredUsers.find(u => 
-    u.email.toLowerCase() === identifier.toLowerCase() || 
-    (u.prn && u.prn.toLowerCase() === identifier.toLowerCase())
-  );
+  // 2. Check against Backend & LocalStorage with Live Status Validation
+  try {
+    const user = await api.loginUser({
+      email: identifier,
+      prn: identifier,
+      password: password
+    });
 
-  if (matchedUser) {
-    if (matchedUser.status === 'PENDING') {
-      showToast('⏳ Approval Pending: Your email has not been approved yet by Administrator Sanjay Patil.', 'error');
+    if (user) {
+      if (user.status === 'PENDING') {
+        showToast('⏳ Approval Pending: Your account has not been approved yet by Administrator Sanjay Patil.', 'error');
+        return;
+      }
+      if (user.status === 'REJECTED') {
+        showToast('Your account registration was rejected by the Administrator.', 'error');
+        return;
+      }
+
+      // Check stored password if present
+      const registeredUsers = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
+      const localRecord = registeredUsers.find(u => 
+        (u.email && u.email.toLowerCase() === identifier.toLowerCase()) ||
+        (u.prn && u.prn.toLowerCase() === identifier.toLowerCase()) ||
+        (user.id && u.id === user.id)
+      );
+
+      if (localRecord && localRecord.password && localRecord.password !== password) {
+        showToast('Incorrect password. Please try again.', 'error');
+        return;
+      }
+
+      state.loginUser(user);
+      closeAllModals();
+      showToast(`Welcome back, ${user.firstName || 'Student'}! Signed in.`, 'success');
       return;
     }
-    state.loginUser(matchedUser);
-    closeAllModals();
-    showToast(`Welcome back, ${matchedUser.firstName}! Signed in.`, 'success');
-    return;
+  } catch (err) {
+    showToast(err.message || 'Login failed. Please check your credentials.', 'error');
   }
-
-  showToast('Account not found. Please click "Register Account" to submit your email for admin approval.', 'error');
 }
 
 async function handleCampusRegister(e) {
@@ -821,6 +841,7 @@ async function handleCampusRegister(e) {
     lastName: names.slice(1).join(' ') || '',
     role: isAdmin ? 'ADMIN' : 'USER',
     status: status,
+    password: password,
     avatar: names[0].charAt(0).toUpperCase(),
     createdAt: new Date().toISOString()
   };
@@ -828,10 +849,11 @@ async function handleCampusRegister(e) {
   // Sync to Spring Boot Backend (Inserts into MySQL users table)
   const savedUser = await api.registerUser(newUser);
 
-  // Save locally
+  // Save locally including password for offline validation
   let registeredUsers = JSON.parse(localStorage.getItem('campus_lf_registered_users') || '[]');
   registeredUsers = registeredUsers.filter(u => u.email.toLowerCase() !== email.toLowerCase());
-  registeredUsers.unshift(savedUser || newUser);
+  const combinedUser = { ...newUser, ...(savedUser || {}) };
+  registeredUsers.unshift(combinedUser);
   localStorage.setItem('campus_lf_registered_users', JSON.stringify(registeredUsers));
 
   document.getElementById('campusRegisterForm').reset();
@@ -840,7 +862,7 @@ async function handleCampusRegister(e) {
     switchAuthTab('signin');
     showToast('Registration submitted! Your email is pending approval by Administrator Sanjay Patil.', 'info');
   } else {
-    state.loginUser(savedUser || newUser);
+    state.loginUser(combinedUser);
     closeAllModals();
     showToast(`Administrator account created and approved! Welcome, ${newUser.firstName}.`, 'success');
   }

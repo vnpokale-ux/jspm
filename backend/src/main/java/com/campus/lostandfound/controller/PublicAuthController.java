@@ -48,16 +48,31 @@ public class PublicAuthController {
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<UserDto>> loginUser(@RequestBody UserDto request) {
-        Optional<User> userOpt = userRepository.findByEmail(request.getEmail());
+        Optional<User> userOpt = Optional.empty();
+        
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            String identifier = request.getEmail().trim();
+            userOpt = userRepository.findByEmail(identifier);
+            if (userOpt.isEmpty()) {
+                userOpt = userRepository.findByPrn(identifier);
+            }
+        }
+        
+        if (userOpt.isEmpty() && request.getPrn() != null && !request.getPrn().isBlank()) {
+            userOpt = userRepository.findByPrn(request.getPrn().trim());
+        }
+
         if (userOpt.isPresent()) {
             User user = userOpt.get();
             if (user.getStatus() == User.UserStatus.PENDING) {
-                return ResponseEntity.status(403).body(ApiResponse.error("Your account is pending approval by the College Administrator. Please contact Security Desk."));
+                return ResponseEntity.status(403).body(ApiResponse.error("Your account registration is still pending approval by Administrator Sanjay Patil."));
+            }
+            if (user.getStatus() == User.UserStatus.REJECTED) {
+                return ResponseEntity.status(403).body(ApiResponse.error("Your account registration was rejected by the Administrator."));
             }
             return ResponseEntity.ok(ApiResponse.success(UserDto.fromEntity(user), "Login successful"));
         }
 
-        // If user doesn't exist yet, auto-register them
-        return registerUser(request);
+        return ResponseEntity.status(404).body(ApiResponse.error("Account not found. Please click 'Register Account' first."));
     }
 }
