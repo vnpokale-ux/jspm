@@ -10,6 +10,14 @@ target/
 .DS_Store
 Thumbs.db
 
+# Frontend dependencies and builds
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.env
+*.env.local
+
 # Logs and temp files
 *.log
 powershell.bat
